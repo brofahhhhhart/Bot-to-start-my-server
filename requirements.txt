@@ -3,3 +3,4 @@ requests
 flask
 audioop-lts
 psutil
+matplotlib
