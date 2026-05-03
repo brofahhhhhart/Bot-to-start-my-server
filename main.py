@@ -15,7 +15,7 @@ import io
 # ====================== CONFIG ======================
 TOKEN = os.getenv("DISCORD_TOKEN")
 FIREBASE_URL = os.getenv("FIREBASE_URL")
-UPTIMEROBOT_API = os.getenv("UPTIMEROBOT_API_KEY")  # Adicione no Render
+UPTIMEROBOT_API = os.getenv("UPTIMEROBOT_API_KEY")
 
 CARGO_ID = 1465895263582294271
 CATEGORIA = "TERMINAL"
@@ -67,9 +67,9 @@ async def get_uptime_info():
         payload = {"api_key": UPTIMEROBOT_API, "format": "json"}
         data = requests.post("https://api.uptimerobot.com/v2/getMonitors", data=payload).json()
         monitors = data.get("monitors", [])
-        return "\n".join([f"• {m['friendly_name']}: {'✅ Online' if m.get('status') == 2 else '❌ Offline'}" for m in monitors[:5]])
+        return "\n".join([f"• {m['friendly_name']}: {'✅ Online' if m.get('status') == 2 else '❌ Offline'}" for m in monitors])
     except:
-        return "Erro ao consultar UptimeRobot"
+        return "Erro ao consultar"
 
 # ====================== MKDIR ======================
 async def criar_mkdir(msg, nome):
@@ -79,15 +79,15 @@ async def criar_mkdir(msg, nome):
         os.makedirs(f"./{nome}", exist_ok=True)
         with open(f"./{nome}/info.txt", "w") as f:
             f.write(f"Pasta criada via terminal\nData: {datetime.now()}")
-    except:
-        pass
+    except Exception as e:
+        print(e)
     return canal
 
 # ====================== ON_READY ======================
 @bot.event
 async def on_ready():
-    print(f"🦊 Terminal Bot Online: {bot.user}")
-    await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name="Terminal"))
+    print(f"🦊 Bot Online: {bot.user}")
+    await bot.change_presence(activity=discord.Game("Terminal Avançado"))
 
 # ====================== ON_MESSAGE ======================
 @bot.event
@@ -102,29 +102,28 @@ async def on_message(msg):
 
     comando_lower = content.lower()
 
-    # Filtro para não responder conversa normal
     if not any(comando_lower.startswith(t) for t in ["pip install ", "mkdir ", "bnd", "status", "ping", "uptime", "sys", "help", "plot"]):
         return
 
     if not autorizado(msg.author):
         return await msg.reply("❌ Sem permissão.")
 
-    loading = await msg.reply("```🔄 Conectando ao Terminal...```")
+    loading = await msg.reply("```🔄 Inicializando Terminal...```")
     await loader(loading)
 
-    # ==================== MKDIR ====================
+    # MKDIR
     if comando_lower.startswith("mkdir "):
         nome = content[6:].strip()
-        await loader(loading, f"Criando estrutura {nome}...")
+        await loader(loading, f"Criando {nome}...")
         canal = await criar_mkdir(msg, nome)
-        await loading.edit(content=f"```✅ Pasta e canal '{nome}' criados com sucesso!\n{canal.mention}```")
+        await loading.edit(content=f"```✅ Estrutura '{nome}' criada!\n📁 {canal.mention}```")
         return
 
-    # ==================== PIP INSTALL (Termux Style) ====================
+    # PIP INSTALL (Estilo Termux)
     if comando_lower.startswith("pip install "):
         pkg = content[12:].strip()
         await loading.edit(content=f"```📦 Baixando {pkg}...```")
-        install_msg = await msg.channel.send(f"```🔽 Instalando dependências de {pkg}...```")
+        install_msg = await msg.channel.send(f"```🔽 Instalando {pkg}...```")
         
         proc = subprocess.run(f"pip install {pkg}", shell=True, capture_output=True, text=True, timeout=150)
         
@@ -134,58 +133,33 @@ async def on_message(msg):
                 lista.append(pkg)
                 fb_save(lista)
             await install_msg.edit(content=f"```✅ {pkg} instalado com sucesso!```")
-            await loading.edit(content=f"```$ pip install {pkg}\n\n✅ Pacote instalado e salvo no banco.```")
+            await loading.edit(content=f"```$ pip install {pkg}\n\n✅ Sucesso! Pacote salvo no banco.```")
         else:
-            await install_msg.edit(content=f"```❌ Falha na instalação de {pkg}\n{proc.stderr[:800]}```")
+            await install_msg.edit(content=f"```❌ Falha na instalação:\n{proc.stderr[:900]}```")
         return
 
-    # ==================== BND ====================
+    # BND
     if comando_lower.startswith("bnd"):
         cat = discord.utils.get(msg.guild.categories, name=CATEGORIA) or await msg.guild.create_category(CATEGORIA)
-        channel = discord.utils.get(msg.guild.text_channels, name="banco-de-pacotes")
-        if not channel:
-            channel = await msg.guild.create_text_channel("banco-de-pacotes", category=cat)
+        channel = discord.utils.get(msg.guild.text_channels, name="banco-de-pacotes") or await msg.guild.create_text_channel("banco-de-pacotes", category=cat)
 
         lista = fb_get()
-        embed = discord.Embed(title="📦 Banco de Pacotes Instalados", color=0x00ff88, timestamp=datetime.utcnow())
-        embed.description = "\n".join([f"• {p}" for p in lista]) or "Nenhum pacote instalado."
-        embed.add_field(name="Total", value=f"{len(lista)} pacotes", inline=True)
-        
-        try:
-            disco = psutil.disk_usage('/')
-            embed.add_field(name="💾 Render", value=f"{disco.free//(1024**3)}GB livre", inline=True)
-        except:
-            pass
+        embed = discord.Embed(title="📦 Banco de Pacotes Instalados", color=0x00ff88)
+        embed.description = "\n".join([f"• {p}" for p in lista]) or "Nenhum pacote."
+        embed.add_field(name="Total", value=len(lista), inline=True)
+        embed.add_field(name="💾 Render", value=f"{psutil.disk_usage('/').free//(1024**3)}GB livre", inline=True)
         embed.add_field(name="🔥 Firebase", value=f"{get_firebase_size()} KB", inline=True)
         embed.add_field(name="📡 UptimeRobot", value=await get_uptime_info(), inline=False)
-        embed.add_field(name="🏓 Ping do Bot", value=f"{round(bot.latency*1000, 2)}ms", inline=True)
+        embed.add_field(name="🏓 Ping", value=f"{round(bot.latency*1000, 2)}ms", inline=True)
 
         await channel.send(embed=embed)
-        await loading.edit(content=f"```✅ Banco aberto em {channel.mention}```")
+        await loading.edit(content=f"```✅ Banco de pacotes aberto em {channel.mention}```")
         return
 
-    # ==================== OUTROS COMANDOS ====================
-    if comando_lower in ["status", "sys"]:
-        embed = discord.Embed(title="🖥️ Status Completo do Servidor", color=0x0099ff)
-        embed.add_field(name="CPU", value=f"{psutil.cpu_percent()}%", inline=True)
-        embed.add_field(name="RAM", value=f"{psutil.virtual_memory().percent}%", inline=True)
-        embed.add_field(name="Ping", value=f"{round(bot.latency*1000, 2)}ms", inline=True)
-        embed.add_field(name="Uptime", value=str(timedelta(seconds=int((datetime.utcnow() - start_time).total_seconds()))), inline=True)
-        await loading.edit(content=None, embed=embed)
-        return
-
-    if comando_lower.startswith("ping") or comando_lower.startswith("uptime"):
-        await loading.edit(content=f"```🏓 Ping: {round(bot.latency*1000, 2)}ms\n⏱️ Online há: {str(timedelta(seconds=int((datetime.utcnow() - start_time).total_seconds())))}```")
-        return
-
-    if comando_lower == "help":
-        await loading.edit(content="```Comandos: mkdir, pip install, bnd, status, ping, uptime, help```")
-        return
-
-    # Comando genérico
+    # Outros comandos
     try:
         proc = subprocess.run(content, shell=True, capture_output=True, text=True, timeout=30)
-        await loading.edit(content=f"```\n$ {content}\n\n{proc.stdout + proc.stderr[:1850] or '✔ OK'}\n```")
+        await loading.edit(content=f"```\n$ {content}\n\n{proc.stdout + proc.stderr[:1800] or '✔ OK'}\n```")
     except Exception as e:
         await loading.edit(content=f"```❌ {e}```")
 
@@ -194,10 +168,8 @@ from flask import Flask
 from threading import Thread
 app = Flask("")
 @app.route("/") 
-def home(): 
-    return "Terminal Bot Online - Ligue no Render se estiver off"
-def keep_alive(): 
-    Thread(target=lambda: app.run(host="0.0.0.0", port=8080)).start()
+def home(): return "Bot Terminal - Ligue no Render se estiver off"
+def keep_alive(): Thread(target=lambda: app.run(host="0.0.0.0", port=8080)).start()
 
 if __name__ == "__main__":
     keep_alive()
