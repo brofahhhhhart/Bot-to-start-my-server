@@ -1,137 +1,82 @@
-# ==========================================
-# 🦊 FOX TERMINAL v30 - FULL (SEM IA)
-# ==========================================
+# ================================
+# 🦊 FOX TERMINAL PRO - VPS EDITION
+# ================================
 
 import discord
 from discord.ext import commands, tasks
 import asyncio
 import subprocess
-import sys
 import os
 import time
-import re
-from datetime import datetime, timezone
+import shlex
+from datetime import datetime
+from flask import Flask
+from threading import Thread
 
-# ───────────────── CONFIG ─────────────────
+# ─── CONFIG ─────────────────────────────────────────────
 
-TOKEN = os.environ.get("DISCORD_TOKEN", "")
+TOKEN = os.getenv("DISCORD_TOKEN")
+
 CARGO_ID = 1465895263582294271
 CATEGORIA = "TERMINAL"
 
 CMD_TIMEOUT = 60
-INSTALL_TIMEOUT = 180
 
-# ───────────────── CORES ─────────────────
+# ─── BOT ───────────────────────────────────────────────
 
-C_OK = 0x2ECC71
-C_ERRO = 0xE74C3C
-C_INFO = 0x3498DB
-C_LOADING = 0xF39C12
-C_TERM = 0x1ABC9C
-C_LOCK = 0xC0392B
+intents = discord.Intents.all()
+bot = commands.Bot(command_prefix="!", intents=intents)
 
 boot_time = time.time()
 
-# ───────────────── BOT ─────────────────
+# ─── SEGURANÇA ─────────────────────────────────────────
 
-intents = discord.Intents.default()
-intents.message_content = True
-intents.guilds = True
-intents.members = True
+COMANDOS_BLOQUEADOS = [
+    "rm -rf /", "mkfs", "shutdown", "reboot",
+    "dd if=", ">:","kill -9 1"
+]
 
-bot = commands.Bot(command_prefix="!", intents=intents)
+def seguro(cmd):
+    for perigo in COMANDOS_BLOQUEADOS:
+        if perigo in cmd:
+            return False
+    return True
 
-# ───────────────── HELPERS ─────────────────
-
-def agora():
-    return datetime.now().strftime("%H:%M:%S")
-
-def uptime():
-    s = int(time.time() - boot_time)
-    h, r = divmod(s, 3600)
-    m, s = divmod(r, 60)
-    return f"{h:02d}:{m:02d}:{s:02d}"
+# ─── HELPERS ───────────────────────────────────────────
 
 def tem_cargo(member):
     return any(r.id == CARGO_ID for r in member.roles)
 
-def cortar(txt, n=2000):
-    return txt[:n] if txt else "OK"
+def uptime():
+    s = int(time.time() - boot_time)
+    return f"{s//3600}h {(s%3600)//60}m {s%60}s"
 
-# ───────────────── SEGURANÇA ─────────────────
+def cortar(txt, n=1800):
+    return txt[:n] if txt else ""
 
-COMANDOS_BLOQUEADOS = [
-    "rm -rf /",
-    "shutdown",
-    "reboot",
-    "mkfs",
-    ":(){:|:&};:",
-]
-
-def comando_perigoso(cmd):
-    return any(b in cmd.lower() for b in COMANDOS_BLOQUEADOS)
-
-# ───────────────── EXECUÇÃO ─────────────────
-
-def rodar(cmd, timeout=CMD_TIMEOUT):
+def rodar(cmd):
     try:
-        r = subprocess.run(
+        proc = subprocess.run(
             cmd,
             shell=True,
             capture_output=True,
             text=True,
-            timeout=timeout
+            timeout=CMD_TIMEOUT
         )
-        return r.stdout, r.stderr, r.returncode
-    except subprocess.TimeoutExpired:
-        return "", "Tempo excedido", 1
+        return proc.stdout or proc.stderr
     except Exception as e:
-        return "", str(e), 1
+        return str(e)
 
-async def rodar_async(cmd, timeout=CMD_TIMEOUT):
-    loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(None, lambda: rodar(cmd, timeout))
+# ─── LOADER ANIMADO ────────────────────────────────────
 
-# ───────────────── LOADER ─────────────────
+SPIN = ["⠁","⠂","⠄","⠂","⠁"]
 
-class Loader:
-    def __init__(self, canal, titulo, cmd):
-        self.canal = canal
-        self.titulo = titulo
-        self.cmd = cmd
-        self.msg = None
-        self.start_time = time.time()
+async def animar(msg, texto):
+    for i in range(10):
+        await msg.edit(content=f"{SPIN[i%len(SPIN)]} {texto}")
+        await asyncio.sleep(0.4)
 
-    async def start(self):
-        embed = discord.Embed(
-            title=f"⏳ {self.titulo}",
-            description=f"```bash\n{self.cmd}\n```",
-            color=C_LOADING
-        )
-        self.msg = await self.canal.send(embed=embed)
-        return self
-
-    async def ok(self, output):
-        tempo = f"{time.time() - self.start_time:.2f}s"
-        embed = discord.Embed(
-            title=f"✅ {self.titulo}",
-            description=f"```bash\n{cortar(output)}\n```",
-            color=C_OK
-        )
-        embed.add_field(name="Tempo", value=tempo)
-        await self.msg.edit(embed=embed)
-
-    async def erro(self, output):
-        tempo = f"{time.time() - self.start_time:.2f}s"
-        embed = discord.Embed(
-            title=f"❌ {self.titulo}",
-            description=f"```bash\n{cortar(output)}\n```",
-            color=C_ERRO
-        )
-        embed.add_field(name="Tempo", value=tempo)
-        await self.msg.edit(embed=embed)
-
-# ───────────────── CATEGORIA ─────────────────
+# ─── CATEGORIA ─────────────────────────────────────────
 
 async def get_categoria(guild):
     cat = discord.utils.get(guild.categories, name=CATEGORIA)
@@ -139,150 +84,121 @@ async def get_categoria(guild):
         cat = await guild.create_category(CATEGORIA)
     return cat
 
-# ───────────────── COMANDOS DISCORD ─────────────────
+# ─── COMANDOS SUPORTADOS (70+) ─────────────────────────
 
-async def cmd_mkdir(msg, nome):
-    nome = re.sub(r"[^a-z0-9\-]", "-", nome.lower())
+CMDS = [
+"pip","pip3","python","python3",
+"npm","npx","node","yarn","pnpm","bun",
+"apt","apt-get","apt-cache","dpkg",
+"pkg",
+"git",
+"docker","docker-compose",
+"ls","ll","la","pwd","cd",
+"rm","cat","echo","touch","mv","cp",
+"chmod","chown","ln",
+"head","tail","grep","wc","find",
+"which","sort","awk","sed",
+"clear","history","env","export",
+"ps","kill","df","du","free","uptime","date",
+"curl","wget","ping","netstat","ss","ifconfig","ip",
+"nmap","traceroute","dig",
+"whoami","uname","id","groups",
+"lscpu","lsblk",
+"nano","vim","vi",
+"top","htop"
+]
 
-    cat = await get_categoria(msg.guild)
-
-    if discord.utils.get(cat.channels, name=nome):
-        await msg.channel.send("❌ Canal já existe")
-        return
-
-    canal = await msg.guild.create_text_channel(nome, category=cat)
-
-    await msg.channel.send(f"📁 Criado: {canal.mention}")
-
-async def cmd_ls(msg):
-    cat = discord.utils.get(msg.guild.categories, name=CATEGORIA)
-
-    if not cat:
-        await msg.channel.send("Sem canais")
-        return
-
-    lista = "\n".join([c.name for c in cat.channels]) or "Vazio"
-    await msg.channel.send(f"```\n{lista}\n```")
-
-async def cmd_rm(msg, nome):
-    cat = discord.utils.get(msg.guild.categories, name=CATEGORIA)
-    canal = discord.utils.get(cat.channels, name=nome) if cat else None
-
-    if not canal:
-        await msg.channel.send("❌ Não encontrado")
-        return
-
-    await canal.delete()
-    await msg.channel.send("🗑️ Canal removido")
-
-# ───────────────── ATUALIZAÇÃO ─────────────────
-
-async def atualizar_instaladores():
-    comandos = [
-        "python -m pip install --upgrade pip",
-        "pip install --upgrade setuptools",
-        "npm install -g npm",
-    ]
-
-    for cmd in comandos:
-        try:
-            subprocess.run(cmd, shell=True)
-        except:
-            pass
-
-# ───────────────── DETECÇÃO ─────────────────
-
-def eh_comando(msg):
-    if not msg.strip():
+def eh_cmd(msg):
+    if not msg:
         return False
-    return True  # aceita tudo (terminal livre)
+    return msg.split()[0] in CMDS
 
-# ───────────────── ON MESSAGE ─────────────────
+# ─── EVENTO PRINCIPAL ──────────────────────────────────
 
 @bot.event
 async def on_message(msg):
-    if msg.author.bot or not msg.guild:
+    if msg.author.bot:
+        return
+
+    if not tem_cargo(msg.author):
         return
 
     content = msg.content.strip()
 
-    if not eh_comando(content):
+    # ─── MKDIR → CANAL ────────────────────────────────
+    if content.startswith("mkdir"):
+        nome = content.replace("mkdir", "").strip().lower()
+
+        if not nome:
+            await msg.reply("❌ Nome inválido")
+            return
+
+        cat = await get_categoria(msg.guild)
+
+        if discord.utils.get(cat.channels, name=nome):
+            await msg.reply("❌ Canal já existe")
+            return
+
+        canal = await msg.guild.create_text_channel(nome, category=cat)
+
+        await msg.reply(f"✅ Canal criado: {canal.mention}")
         return
 
-    if not tem_cargo(msg.author):
-        await msg.channel.send("🔒 Sem permissão")
+    # ─── CLEAR CHAT ───────────────────────────────────
+    if content in ["clear","cls"]:
+        await msg.channel.purge(limit=50)
         return
 
-    if comando_perigoso(content):
-        await msg.channel.send("🚫 Comando bloqueado")
+    # ─── EXECUÇÃO TERMINAL ────────────────────────────
+    if eh_cmd(content):
+
+        if not seguro(content):
+            await msg.reply("🚫 Comando bloqueado por segurança")
+            return
+
+        m = await msg.reply("⏳ Executando...")
+        await animar(m, content)
+
+        output = rodar(content)
+
+        await m.edit(content=f"```bash\n{cortar(output)}\n```")
         return
 
-    partes = content.split()
-    cmd = partes[0]
-    args = partes[1:]
+    await bot.process_commands(msg)
 
-    # ─── mkdir ───
-    if cmd == "mkdir" and args:
-        await cmd_mkdir(msg, " ".join(args))
-        return
-
-    # ─── ls ───
-    if cmd == "ls":
-        await cmd_ls(msg)
-        return
-
-    # ─── rm ───
-    if cmd == "rm" and args:
-        await cmd_rm(msg, args[0])
-        return
-
-    # ─── EXECUÇÃO REAL ───
-    loader = await Loader(msg.channel, f"Executando {cmd}", content).start()
-
-    out, err, code = await rodar_async(content)
-
-    if code == 0:
-        await loader.ok(out or "OK")
-    else:
-        await loader.erro(err or out)
-
-# ───────────────── STATUS ─────────────────
+# ─── STATUS ───────────────────────────────────────────
 
 @tasks.loop(seconds=30)
-async def status_loop():
-    await bot.change_presence(activity=discord.Game("Fox Terminal 🦊"))
+async def status():
+    await bot.change_presence(activity=discord.Game("Fox Terminal VPS 🦊"))
+
+# ─── READY ────────────────────────────────────────────
 
 @bot.event
 async def on_ready():
-    print("🦊 Fox Terminal ONLINE")
-    status_loop.start()
+    print(f"🦊 Online como {bot.user}")
+    status.start()
 
-# ───────────────── KEEP ALIVE ─────────────────
-
-from flask import Flask
-from threading import Thread
+# ─── KEEP ALIVE ───────────────────────────────────────
 
 app = Flask("")
 
 @app.route("/")
 def home():
-    return f"Fox Terminal OK | uptime {uptime()}"
+    return f"Fox Terminal Online | uptime {uptime()}"
 
-def run():
+def run_web():
     app.run(host="0.0.0.0", port=8080)
 
 def keep_alive():
-    Thread(target=run).start()
+    Thread(target=run_web).start()
 
-# ───────────────── START ─────────────────
+# ─── START ────────────────────────────────────────────
 
 if __name__ == "__main__":
     if not TOKEN:
-        print("❌ Token não definido")
+        print("❌ Defina DISCORD_TOKEN")
         exit()
 
     keep_alive()
-    asyncio.run(atualizar_instaladores())
-
-    print("🚀 Iniciando Fox Terminal...")
     bot.run(TOKEN)
