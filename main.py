@@ -1,5 +1,5 @@
 # ================================
-# 🦊 FOX TERMINAL PRO - VPS EDITION
+# 🦊 FOX TERMINAL ULTRA v2
 # ================================
 
 import discord
@@ -8,197 +8,228 @@ import asyncio
 import subprocess
 import os
 import time
-import shlex
+import random
 from datetime import datetime
 from flask import Flask
 from threading import Thread
-
-# ─── CONFIG ─────────────────────────────────────────────
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 
 CARGO_ID = 1465895263582294271
 CATEGORIA = "TERMINAL"
 
-CMD_TIMEOUT = 60
+bot = commands.Bot(command_prefix="!", intents=discord.Intents.all())
 
-# ─── BOT ───────────────────────────────────────────────
+# ─────────────────────────────────────────────
+# 🧠 100+ COMANDOS SUPORTADOS
+# ─────────────────────────────────────────────
 
-intents = discord.Intents.all()
-bot = commands.Bot(command_prefix="!", intents=intents)
+CMDS = set("""
+pip pip3 python python3
+npm npx node yarn pnpm bun
+apt apt-get apt-cache dpkg snap flatpak
+pkg
+git
+docker docker-compose
+ls ll la pwd cd
+rm cat echo touch mv cp
+chmod chown ln
+head tail grep wc find
+which whereis sort awk sed cut tr
+clear history env export unset
+ps kill killall top htop
+df du free uptime date cal
+curl wget ping netstat ss ifconfig ip
+nmap traceroute dig nslookup host
+whoami uname id groups hostname
+lscpu lsblk lsusb
+nano vim vi micro
+zip unzip tar gzip gunzip
+make gcc g++ cmake
+java javac mvn gradle
+composer php
+go cargo rustc
+perl ruby
+sqlite mysql psql
+screen tmux
+alias unalias
+watch time yes
+uptime reboot shutdown
+""".split())
 
-boot_time = time.time()
+# ─────────────────────────────────────────────
+# 🔐 SEGURANÇA
+# ─────────────────────────────────────────────
 
-# ─── SEGURANÇA ─────────────────────────────────────────
-
-COMANDOS_BLOQUEADOS = [
-    "rm -rf /", "mkfs", "shutdown", "reboot",
-    "dd if=", ">:","kill -9 1"
-]
+BLOCK = ["rm -rf /", "shutdown", "reboot", "mkfs", "dd if="]
 
 def seguro(cmd):
-    for perigo in COMANDOS_BLOQUEADOS:
-        if perigo in cmd:
-            return False
-    return True
-
-# ─── HELPERS ───────────────────────────────────────────
+    return not any(x in cmd for x in BLOCK)
 
 def tem_cargo(member):
     return any(r.id == CARGO_ID for r in member.roles)
 
-def uptime():
-    s = int(time.time() - boot_time)
-    return f"{s//3600}h {(s%3600)//60}m {s%60}s"
-
-def cortar(txt, n=1800):
-    return txt[:n] if txt else ""
-
-def rodar(cmd):
-    try:
-        proc = subprocess.run(
-            cmd,
-            shell=True,
-            capture_output=True,
-            text=True,
-            timeout=CMD_TIMEOUT
-        )
-        return proc.stdout or proc.stderr
-    except Exception as e:
-        return str(e)
-
-# ─── LOADER ANIMADO ────────────────────────────────────
-
-SPIN = ["⠁","⠂","⠄","⠂","⠁"]
-
-async def animar(msg, texto):
-    for i in range(10):
-        await msg.edit(content=f"{SPIN[i%len(SPIN)]} {texto}")
-        await asyncio.sleep(0.4)
-
-# ─── CATEGORIA ─────────────────────────────────────────
-
-async def get_categoria(guild):
-    cat = discord.utils.get(guild.categories, name=CATEGORIA)
-    if not cat:
-        cat = await guild.create_category(CATEGORIA)
-    return cat
-
-# ─── COMANDOS SUPORTADOS (70+) ─────────────────────────
-
-CMDS = [
-"pip","pip3","python","python3",
-"npm","npx","node","yarn","pnpm","bun",
-"apt","apt-get","apt-cache","dpkg",
-"pkg",
-"git",
-"docker","docker-compose",
-"ls","ll","la","pwd","cd",
-"rm","cat","echo","touch","mv","cp",
-"chmod","chown","ln",
-"head","tail","grep","wc","find",
-"which","sort","awk","sed",
-"clear","history","env","export",
-"ps","kill","df","du","free","uptime","date",
-"curl","wget","ping","netstat","ss","ifconfig","ip",
-"nmap","traceroute","dig",
-"whoami","uname","id","groups",
-"lscpu","lsblk",
-"nano","vim","vi",
-"top","htop"
-]
-
 def eh_cmd(msg):
     if not msg:
         return False
-    return msg.split()[0] in CMDS
+    return msg.split()[0].lower() in CMDS
 
-# ─── EVENTO PRINCIPAL ──────────────────────────────────
+# ─────────────────────────────────────────────
+# 🎬 LOADER ANIMADO (BARRA + %)
+# ─────────────────────────────────────────────
+
+async def loader_terminal(msg, texto):
+    barras = ["░░░░░░░░░░","█░░░░░░░░░","██░░░░░░░░","███░░░░░░░","████░░░░░░",
+              "█████░░░░░","██████░░░░","███████░░░","████████░░","█████████░","██████████"]
+
+    for i in range(11):
+        pct = i * 10
+        frame = f"""
+```bash
+$ {texto}
+[{barras[i]}] {pct}%
+Processando...
+
+"""
+await msg.edit(content=frame)
+await asyncio.sleep(0.4)
+
+─────────────────────────────────────────────
+
+🤖 RESPOSTA TERMINAL FAKE (EX: OI)
+
+─────────────────────────────────────────────
+
+async def resposta_fake(msg, texto):
+m = await msg.reply("⏳ Inicializando terminal...")
+await loader_terminal(m, texto)
+
+respostas = [
+    "comando não encontrado",
+    "executando rotina...",
+    "entrada recebida",
+    "processo concluído"
+]
+
+await m.edit(content=f"""
+
+$ {texto}
+{random.choice(respostas)}
+✔ concluído
+
+""")
+
+─────────────────────────────────────────────
+
+⚙ EXECUÇÃO REAL
+
+─────────────────────────────────────────────
+
+def rodar(cmd):
+try:
+r = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=60)
+return r.stdout or r.stderr or "OK"
+except Exception as e:
+return str(e)
+
+─────────────────────────────────────────────
+
+📁 CATEGORIA
+
+─────────────────────────────────────────────
+
+async def get_categoria(guild):
+cat = discord.utils.get(guild.categories, name=CATEGORIA)
+if not cat:
+cat = await guild.create_category(CATEGORIA)
+return cat
+
+─────────────────────────────────────────────
+
+🎯 EVENTO PRINCIPAL
+
+─────────────────────────────────────────────
 
 @bot.event
 async def on_message(msg):
-    if msg.author.bot:
-        return
+if msg.author.bot:
+return
 
-    if not tem_cargo(msg.author):
-        return
+if not tem_cargo(msg.author):
+    return
 
-    content = msg.content.strip()
+content = msg.content.strip()
 
-    # ─── MKDIR → CANAL ────────────────────────────────
-    if content.startswith("mkdir"):
-        nome = content.replace("mkdir", "").strip().lower()
+# ─── MKDIR ─────────────────
+if content.startswith("mkdir"):
+    nome = content.replace("mkdir", "").strip().lower()
+    cat = await get_categoria(msg.guild)
+    canal = await msg.guild.create_text_channel(nome, category=cat)
+    await msg.reply(f"📁 Canal criado: {canal.mention}")
+    return
 
-        if not nome:
-            await msg.reply("❌ Nome inválido")
-            return
+# ─── NÃO É COMANDO → TERMINAL FAKE ───
+if not eh_cmd(content):
+    await resposta_fake(msg, content)
+    return
 
-        cat = await get_categoria(msg.guild)
+# ─── SEGURANÇA ───
+if not seguro(content):
+    await msg.reply("🚫 Comando bloqueado")
+    return
 
-        if discord.utils.get(cat.channels, name=nome):
-            await msg.reply("❌ Canal já existe")
-            return
+# ─── EXECUÇÃO REAL ───
+m = await msg.reply("⏳ Executando...")
+await loader_terminal(m, content)
 
-        canal = await msg.guild.create_text_channel(nome, category=cat)
+out = rodar(content)
 
-        await msg.reply(f"✅ Canal criado: {canal.mention}")
-        return
+await m.edit(content=f"""
 
-    # ─── CLEAR CHAT ───────────────────────────────────
-    if content in ["clear","cls"]:
-        await msg.channel.purge(limit=50)
-        return
+$ {content}
+{out[:1800]}
 
-    # ─── EXECUÇÃO TERMINAL ────────────────────────────
-    if eh_cmd(content):
+""")
 
-        if not seguro(content):
-            await msg.reply("🚫 Comando bloqueado por segurança")
-            return
+─────────────────────────────────────────────
 
-        m = await msg.reply("⏳ Executando...")
-        await animar(m, content)
+🔄 STATUS
 
-        output = rodar(content)
-
-        await m.edit(content=f"```bash\n{cortar(output)}\n```")
-        return
-
-    await bot.process_commands(msg)
-
-# ─── STATUS ───────────────────────────────────────────
+─────────────────────────────────────────────
 
 @tasks.loop(seconds=30)
 async def status():
-    await bot.change_presence(activity=discord.Game("Fox Terminal VPS 🦊"))
-
-# ─── READY ────────────────────────────────────────────
+await bot.change_presence(activity=discord.Game("Terminal Ultra 🦊"))
 
 @bot.event
 async def on_ready():
-    print(f"🦊 Online como {bot.user}")
-    status.start()
+print(f"🦊 Online: {bot.user}")
+status.start()
 
-# ─── KEEP ALIVE ───────────────────────────────────────
+─────────────────────────────────────────────
+
+🌐 KEEP ALIVE
+
+─────────────────────────────────────────────
 
 app = Flask("")
 
 @app.route("/")
 def home():
-    return f"Fox Terminal Online | uptime {uptime()}"
+return "Fox Terminal Online"
 
-def run_web():
-    app.run(host="0.0.0.0", port=8080)
+def run():
+app.run(host="0.0.0.0", port=8080)
 
 def keep_alive():
-    Thread(target=run_web).start()
+Thread(target=run).start()
 
-# ─── START ────────────────────────────────────────────
+─────────────────────────────────────────────
 
-if __name__ == "__main__":
-    if not TOKEN:
-        print("❌ Defina DISCORD_TOKEN")
-        exit()
+🚀 START
 
-    keep_alive()
-    bot.run(TOKEN)
+─────────────────────────────────────────────
+
+if name == "main":
+keep_alive()
+bot.run(TOKEN)
