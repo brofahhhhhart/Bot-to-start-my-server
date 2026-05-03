@@ -1,175 +1,148 @@
 import discord
-import asyncio
+from discord.ext import commands
 import subprocess
+import asyncio
 import os
-import json
-import sys
+import requests
 import time
 
 # ================= CONFIG =================
-TOKEN = os.environ.get("TOKEN")
+TOKEN = os.getenv("DISCORD_TOKEN")
+FIREBASE_URL = os.getenv("FIREBASE_URL")
+
 CARGO_ID = 1465895263582294271
+CATEGORIA = "TERMINAL"
 
-PKG_DIR = "./packages"
-DB_FILE = "packages.json"
+intents = discord.Intents.all()
+bot = commands.Bot(command_prefix="!", intents=intents)
 
-os.makedirs(PKG_DIR, exist_ok=True)
-sys.path.append(PKG_DIR)
-
-# ================= DATABASE =================
-def load_db():
+# ================= FIREBASE =================
+def fb_get():
     try:
-        with open(DB_FILE, "r") as f:
-            return json.load(f)
+        r = requests.get(f"{FIREBASE_URL}/packages.json")
+        return r.json() if r.json() else []
     except:
         return []
 
-def save_db(data):
-    with open(DB_FILE, "w") as f:
-        json.dump(data, f, indent=2)
-
-def add_pkg(pkg):
-    data = load_db()
-    if pkg not in data:
-        data.append(pkg)
-        save_db(data)
-
-# ================= DISCORD =================
-intents = discord.Intents.default()
-intents.message_content = True
-bot = discord.Client(intents=intents)
-
-def has_perm(member):
-    return any(r.id == CARGO_ID for r in member.roles)
-
-# ================= TERMINAL =================
-SAFE_COMMANDS = [
-    "pip install",
-    "pip uninstall",
-    "pip list",
-    "ls", "pwd", "whoami",
-    "echo", "cat",
-    "curl", "wget"
-]
-
-def is_safe(cmd):
-    return any(cmd.startswith(s) for s in SAFE_COMMANDS)
-
-async def run(cmd):
+def fb_save(data):
     try:
-        r = subprocess.run(
-            cmd,
-            shell=True,
-            cwd=PKG_DIR,
-            capture_output=True,
-            text=True
-        )
-        out = r.stdout or r.stderr
-        return out[:1800] if out else "✔ OK"
-    except Exception as e:
-        return str(e)
+        requests.put(f"{FIREBASE_URL}/packages.json", json=data)
+    except:
+        pass
 
-# ================= LOADER BONITO =================
-async def loader(msg, title="Carregando"):
-    blocks = ["░", "▒", "▓", "█"]
-    for i in range(0, 101, 10):
-        bar = "█" * (i//10) + "░" * (10 - i//10)
-        txt = f"""
-╔══════════════════════════╗
-║  {title}
-║
-║  [{bar}] {i}%
-║
-║  Sistema ativo...
-╚══════════════════════════╝
-"""
-        await msg.edit(content=f"```bash\n{txt}\n```")
-        await asyncio.sleep(0.3)
+# ================= PERMISSÃO =================
+def autorizado(member):
+    return any(role.id == CARGO_ID for role in member.roles)
 
-# ================= REINSTALAR =================
-async def reinstall_all():
-    pkgs = load_db()
-    for p in pkgs:
-        await run(f"pip install {p} --target={PKG_DIR}")
-
-# ================= EVENTOS =================
-@bot.event
-async def on_ready():
-    print(f"🦊 Bot online: {bot.user}")
-    await reinstall_all()
-
-@bot.event
-async def on_message(msg):
-    if msg.author.bot:
+# ================= REINSTALL =================
+async def reinstall():
+    pkgs = fb_get()
+    if not pkgs:
         return
 
-    if not has_perm(msg.author):
+    print("📦 Reinstalando pacotes...")
+    for p in pkgs:
+        os.system(f"pip install {p}")
+
+# ================= LOADER =================
+async def loader(msg):
+    for i in range(0, 101, 10):
+        barra = "█" * (i // 10) + "░" * (10 - i // 10)
+        await msg.edit(content=f"```[{barra}] {i}%```")
+        await asyncio.sleep(0.3)
+
+# ================= READY =================
+@bot.event
+async def on_ready():
+    print(f"🦊 Bot ON: {bot.user}")
+    await reinstall()
+
+# ================= TERMINAL =================
+@bot.event
+async def on_message(msg):
+    if msg.author.bot or not msg.guild:
         return
 
     content = msg.content.strip()
 
-    # ================= OI (modo terminal bonito) =================
-    if content.lower() in ["oi", "ola", "hello"]:
-        m = await msg.channel.send("```bash\nInicializando...\n```")
-        await loader(m, "Boot Fox Terminal")
-
-        await m.edit(content="""```bash
-✔ Sistema Linux carregado
-✔ Pacotes persistentes ativos
-✔ Memória virtual pronta
-
-$ _
-```""")
+    # Ignorar comandos normais
+    if content.startswith("!"):
+        await bot.process_commands(msg)
         return
 
-    # ================= INSTALAR =================
-    if content.startswith("pip install"):
-        pkg = content.split(" ", 2)[-1]
+    # 🔒 Permissão
+    if not autorizado(msg.author):
+        return await msg.reply("❌ Sem permissão")
 
-        m = await msg.channel.send(f"```bash\n$ {content}\n```")
-        await loader(m, f"Instalando {pkg}")
+    # 🎬 Loader estilo terminal
+    loading = await msg.reply("```Iniciando terminal...```")
+    await loader(loading)
 
-        out = await run(f"pip install {pkg} --target={PKG_DIR}")
+    # ================= MKDIR =================
+    if content.startswith("mkdir "):
+        nome = content.replace("mkdir ", "").strip()
 
-        add_pkg(pkg)
+        cat = discord.utils.get(msg.guild.categories, name=CATEGORIA)
+        if not cat:
+            cat = await msg.guild.create_category(CATEGORIA)
 
-        await m.edit(content=f"""```bash
+        canal = await msg.guild.create_text_channel(nome, category=cat)
+        return await loading.edit(content=f"📁 Canal criado: {canal.mention}")
+
+    # ================= PIP =================
+    if content.startswith("pip install "):
+        pkg = content.replace("pip install ", "").strip()
+
+        lista = fb_get()
+        if pkg not in lista:
+            lista.append(pkg)
+            fb_save(lista)
+
+    # ================= EXEC =================
+    try:
+        start = time.time()
+        proc = subprocess.run(content, shell=True, capture_output=True, text=True, timeout=20)
+        output = proc.stdout + proc.stderr
+        tempo = round(time.time() - start, 2)
+
+    except Exception as e:
+        output = str(e)
+        tempo = 0
+
+    if not output.strip():
+        output = "✔ Executado"
+
+    await loading.edit(content=f"""```
 $ {content}
 
-{out}
+{output[:1800]}
 
-✔ Instalado localmente
-✔ Salvo no sistema
+⏱ {tempo}s
 ```""")
-        return
 
-    # ================= LISTAR =================
-    if content == "pacotes":
-        data = load_db()
-        txt = "\n".join(data) if data else "Nenhum pacote"
+    await bot.process_commands(msg)
 
-        await msg.channel.send(f"""```bash
-Pacotes salvos:
+# ================= KEEP ALIVE =================
+from flask import Flask
+from threading import Thread
 
-{txt}
-```""")
-        return
+app = Flask("")
 
-    # ================= COMANDOS =================
-    if not is_safe(content):
-        await msg.channel.send("❌ Comando não permitido")
-        return
+@app.route("/")
+def home():
+    return "🦊 Bot Online"
 
-    m = await msg.channel.send(f"```bash\n$ {content}\n```")
-    await loader(m, "Executando comando")
+def run():
+    app.run(host="0.0.0.0", port=8080)
 
-    out = await run(content)
-
-    await m.edit(content=f"""```bash
-$ {content}
-
-{out}
-```""")
+def keep_alive():
+    Thread(target=run).start()
 
 # ================= START =================
-bot.run(TOKEN)
+if __name__ == "__main__":
+    if not TOKEN or not FIREBASE_URL:
+        print("❌ Configure DISCORD_TOKEN e FIREBASE_URL")
+        exit()
+
+    keep_alive()
+    bot.run(TOKEN)
