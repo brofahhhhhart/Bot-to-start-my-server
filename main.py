@@ -1,235 +1,175 @@
-# ================================
-# 🦊 FOX TERMINAL ULTRA v2
-# ================================
-
 import discord
-from discord.ext import commands, tasks
 import asyncio
 import subprocess
 import os
+import json
+import sys
 import time
-import random
-from datetime import datetime
-from flask import Flask
-from threading import Thread
 
-TOKEN = os.getenv("DISCORD_TOKEN")
-
+# ================= CONFIG =================
+TOKEN = os.environ.get("TOKEN")
 CARGO_ID = 1465895263582294271
-CATEGORIA = "TERMINAL"
 
-bot = commands.Bot(command_prefix="!", intents=discord.Intents.all())
+PKG_DIR = "./packages"
+DB_FILE = "packages.json"
 
-# ─────────────────────────────────────────────
-# 🧠 100+ COMANDOS SUPORTADOS
-# ─────────────────────────────────────────────
+os.makedirs(PKG_DIR, exist_ok=True)
+sys.path.append(PKG_DIR)
 
-CMDS = set("""
-pip pip3 python python3
-npm npx node yarn pnpm bun
-apt apt-get apt-cache dpkg snap flatpak
-pkg
-git
-docker docker-compose
-ls ll la pwd cd
-rm cat echo touch mv cp
-chmod chown ln
-head tail grep wc find
-which whereis sort awk sed cut tr
-clear history env export unset
-ps kill killall top htop
-df du free uptime date cal
-curl wget ping netstat ss ifconfig ip
-nmap traceroute dig nslookup host
-whoami uname id groups hostname
-lscpu lsblk lsusb
-nano vim vi micro
-zip unzip tar gzip gunzip
-make gcc g++ cmake
-java javac mvn gradle
-composer php
-go cargo rustc
-perl ruby
-sqlite mysql psql
-screen tmux
-alias unalias
-watch time yes
-uptime reboot shutdown
-""".split())
+# ================= DATABASE =================
+def load_db():
+    try:
+        with open(DB_FILE, "r") as f:
+            return json.load(f)
+    except:
+        return []
 
-# ─────────────────────────────────────────────
-# 🔐 SEGURANÇA
-# ─────────────────────────────────────────────
+def save_db(data):
+    with open(DB_FILE, "w") as f:
+        json.dump(data, f, indent=2)
 
-BLOCK = ["rm -rf /", "shutdown", "reboot", "mkfs", "dd if="]
+def add_pkg(pkg):
+    data = load_db()
+    if pkg not in data:
+        data.append(pkg)
+        save_db(data)
 
-def seguro(cmd):
-    return not any(x in cmd for x in BLOCK)
+# ================= DISCORD =================
+intents = discord.Intents.default()
+intents.message_content = True
+bot = discord.Client(intents=intents)
 
-def tem_cargo(member):
+def has_perm(member):
     return any(r.id == CARGO_ID for r in member.roles)
 
-def eh_cmd(msg):
-    if not msg:
-        return False
-    return msg.split()[0].lower() in CMDS
-
-# ─────────────────────────────────────────────
-# 🎬 LOADER ANIMADO (BARRA + %)
-# ─────────────────────────────────────────────
-
-async def loader_terminal(msg, texto):
-    barras = ["░░░░░░░░░░","█░░░░░░░░░","██░░░░░░░░","███░░░░░░░","████░░░░░░",
-              "█████░░░░░","██████░░░░","███████░░░","████████░░","█████████░","██████████"]
-
-    for i in range(11):
-        pct = i * 10
-        frame = f"""
-```bash
-$ {texto}
-[{barras[i]}] {pct}%
-Processando...
-
-"""
-await msg.edit(content=frame)
-await asyncio.sleep(0.4)
-
-─────────────────────────────────────────────
-
-🤖 RESPOSTA TERMINAL FAKE (EX: OI)
-
-─────────────────────────────────────────────
-
-async def resposta_fake(msg, texto):
-m = await msg.reply("⏳ Inicializando terminal...")
-await loader_terminal(m, texto)
-
-respostas = [
-    "comando não encontrado",
-    "executando rotina...",
-    "entrada recebida",
-    "processo concluído"
+# ================= TERMINAL =================
+SAFE_COMMANDS = [
+    "pip install",
+    "pip uninstall",
+    "pip list",
+    "ls", "pwd", "whoami",
+    "echo", "cat",
+    "curl", "wget"
 ]
 
-await m.edit(content=f"""
+def is_safe(cmd):
+    return any(cmd.startswith(s) for s in SAFE_COMMANDS)
 
-$ {texto}
-{random.choice(respostas)}
-✔ concluído
+async def run(cmd):
+    try:
+        r = subprocess.run(
+            cmd,
+            shell=True,
+            cwd=PKG_DIR,
+            capture_output=True,
+            text=True
+        )
+        out = r.stdout or r.stderr
+        return out[:1800] if out else "✔ OK"
+    except Exception as e:
+        return str(e)
 
-""")
+# ================= LOADER BONITO =================
+async def loader(msg, title="Carregando"):
+    blocks = ["░", "▒", "▓", "█"]
+    for i in range(0, 101, 10):
+        bar = "█" * (i//10) + "░" * (10 - i//10)
+        txt = f"""
+╔══════════════════════════╗
+║  {title}
+║
+║  [{bar}] {i}%
+║
+║  Sistema ativo...
+╚══════════════════════════╝
+"""
+        await msg.edit(content=f"```bash\n{txt}\n```")
+        await asyncio.sleep(0.3)
 
-─────────────────────────────────────────────
+# ================= REINSTALAR =================
+async def reinstall_all():
+    pkgs = load_db()
+    for p in pkgs:
+        await run(f"pip install {p} --target={PKG_DIR}")
 
-⚙ EXECUÇÃO REAL
-
-─────────────────────────────────────────────
-
-def rodar(cmd):
-try:
-r = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=60)
-return r.stdout or r.stderr or "OK"
-except Exception as e:
-return str(e)
-
-─────────────────────────────────────────────
-
-📁 CATEGORIA
-
-─────────────────────────────────────────────
-
-async def get_categoria(guild):
-cat = discord.utils.get(guild.categories, name=CATEGORIA)
-if not cat:
-cat = await guild.create_category(CATEGORIA)
-return cat
-
-─────────────────────────────────────────────
-
-🎯 EVENTO PRINCIPAL
-
-─────────────────────────────────────────────
+# ================= EVENTOS =================
+@bot.event
+async def on_ready():
+    print(f"🦊 Bot online: {bot.user}")
+    await reinstall_all()
 
 @bot.event
 async def on_message(msg):
-if msg.author.bot:
-return
+    if msg.author.bot:
+        return
 
-if not tem_cargo(msg.author):
-    return
+    if not has_perm(msg.author):
+        return
 
-content = msg.content.strip()
+    content = msg.content.strip()
 
-# ─── MKDIR ─────────────────
-if content.startswith("mkdir"):
-    nome = content.replace("mkdir", "").strip().lower()
-    cat = await get_categoria(msg.guild)
-    canal = await msg.guild.create_text_channel(nome, category=cat)
-    await msg.reply(f"📁 Canal criado: {canal.mention}")
-    return
+    # ================= OI (modo terminal bonito) =================
+    if content.lower() in ["oi", "ola", "hello"]:
+        m = await msg.channel.send("```bash\nInicializando...\n```")
+        await loader(m, "Boot Fox Terminal")
 
-# ─── NÃO É COMANDO → TERMINAL FAKE ───
-if not eh_cmd(content):
-    await resposta_fake(msg, content)
-    return
+        await m.edit(content="""```bash
+✔ Sistema Linux carregado
+✔ Pacotes persistentes ativos
+✔ Memória virtual pronta
 
-# ─── SEGURANÇA ───
-if not seguro(content):
-    await msg.reply("🚫 Comando bloqueado")
-    return
+$ _
+```""")
+        return
 
-# ─── EXECUÇÃO REAL ───
-m = await msg.reply("⏳ Executando...")
-await loader_terminal(m, content)
+    # ================= INSTALAR =================
+    if content.startswith("pip install"):
+        pkg = content.split(" ", 2)[-1]
 
-out = rodar(content)
+        m = await msg.channel.send(f"```bash\n$ {content}\n```")
+        await loader(m, f"Instalando {pkg}")
 
-await m.edit(content=f"""
+        out = await run(f"pip install {pkg} --target={PKG_DIR}")
 
+        add_pkg(pkg)
+
+        await m.edit(content=f"""```bash
 $ {content}
-{out[:1800]}
 
-""")
+{out}
 
-─────────────────────────────────────────────
+✔ Instalado localmente
+✔ Salvo no sistema
+```""")
+        return
 
-🔄 STATUS
+    # ================= LISTAR =================
+    if content == "pacotes":
+        data = load_db()
+        txt = "\n".join(data) if data else "Nenhum pacote"
 
-─────────────────────────────────────────────
+        await msg.channel.send(f"""```bash
+Pacotes salvos:
 
-@tasks.loop(seconds=30)
-async def status():
-await bot.change_presence(activity=discord.Game("Terminal Ultra 🦊"))
+{txt}
+```""")
+        return
 
-@bot.event
-async def on_ready():
-print(f"🦊 Online: {bot.user}")
-status.start()
+    # ================= COMANDOS =================
+    if not is_safe(content):
+        await msg.channel.send("❌ Comando não permitido")
+        return
 
-─────────────────────────────────────────────
+    m = await msg.channel.send(f"```bash\n$ {content}\n```")
+    await loader(m, "Executando comando")
 
-🌐 KEEP ALIVE
+    out = await run(content)
 
-─────────────────────────────────────────────
+    await m.edit(content=f"""```bash
+$ {content}
 
-app = Flask("")
+{out}
+```""")
 
-@app.route("/")
-def home():
-return "Fox Terminal Online"
-
-def run():
-app.run(host="0.0.0.0", port=8080)
-
-def keep_alive():
-Thread(target=run).start()
-
-─────────────────────────────────────────────
-
-🚀 START
-
-─────────────────────────────────────────────
-
-if name == "main":
-keep_alive()
+# ================= START =================
 bot.run(TOKEN)
