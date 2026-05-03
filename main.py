@@ -6,7 +6,6 @@ import os
 import requests
 import time
 import psutil
-import platform
 from datetime import datetime, timedelta
 
 TOKEN = os.getenv("DISCORD_TOKEN")
@@ -26,7 +25,7 @@ def autorizado(member):
 
 async def loader(msg, texto="Processando..."):
     frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
-    for i in range(20):
+    for i in range(22):
         frame = frames[i % len(frames)]
         barra = "█" * (i // 2) + "░" * (12 - i // 2)
         await msg.edit(content=f"```{frame} {texto}\n[{barra}] {min(i*5, 100)}%```")
@@ -53,18 +52,19 @@ async def get_uptime_info():
         data = requests.post("https://api.uptimerobot.com/v2/getMonitors", 
                            data={"api_key": UPTIMEROBOT_API, "format": "json"}).json()
         monitors = data.get("monitors", [])
-        return "\n".join([f"• {m['friendly_name']}: {'✅ Online' if m.get('status') == 2 else '❌ Offline'}" for m in monitors])
+        return "\n".join([f"• {m['friendly_name']}: {'✅' if m.get('status') == 2 else '❌'}" for m in monitors])
     except:
-        return "Erro ao consultar UptimeRobot"
+        return "Erro ao consultar"
 
-# ====================== MKDIR ======================
+# ====================== MKDIR COM EMOJI ======================
 async def criar_mkdir(msg, nome):
     cat = discord.utils.get(msg.guild.categories, name=CATEGORIA) or await msg.guild.create_category(CATEGORIA)
-    canal = await msg.guild.create_text_channel(nome, category=cat)
+    nome_canal = f"📁 {nome}"
+    canal = await msg.guild.create_text_channel(nome_canal, category=cat)
     try:
         os.makedirs(f"./{nome}", exist_ok=True)
-        with open(f"./{nome}/README.md", "w") as f:
-            f.write(f"# Pasta {nome}\nCriada via terminal - {datetime.now()}")
+        with open(f"./{nome}/info.txt", "w") as f:
+            f.write(f"Pasta criada via terminal\nData: {datetime.now()}")
     except:
         pass
     return canal
@@ -74,7 +74,7 @@ async def criar_mkdir(msg, nome):
 async def on_ready():
     print(f"🦊 Terminal Bot Online: {bot.user}")
 
-# ====================== ON_MESSAGE (Corrigido) ======================
+# ====================== ON_MESSAGE ======================
 @bot.event
 async def on_message(msg):
     if msg.author.bot or not msg.guild:
@@ -87,25 +87,24 @@ async def on_message(msg):
 
     comando_lower = content.lower()
 
-    # Ignora conversa normal
     if not any(comando_lower.startswith(t) for t in ["pip install ", "mkdir ", "bnd", "status", "ping", "uptime", "sys", "help"]):
         return
 
     if not autorizado(msg.author):
         return await msg.reply("❌ Sem permissão.")
 
-    # ==================== LOADING ÚNICO ====================
     loading = await msg.reply("```🔄 Inicializando Terminal...```")
     await loader(loading)
 
-    # ==================== COMANDOS ====================
+    # ==================== MKDIR ====================
     if comando_lower.startswith("mkdir "):
         nome = content[6:].strip()
-        await loader(loading, f"Criando {nome}...")
+        await loader(loading, f"Criando pasta {nome}...")
         canal = await criar_mkdir(msg, nome)
-        await loading.edit(content=f"```✅ Pasta e canal '{nome}' criados!\n📁 {canal.mention}```")
+        await loading.edit(content=f"```✅ Pasta criada com sucesso!\n📁 {canal.mention}```")
         return
 
+    # ==================== PIP INSTALL ====================
     if comando_lower.startswith("pip install "):
         pkg = content[12:].strip()
         await loading.edit(content=f"```📦 Baixando {pkg}...```")
@@ -121,27 +120,28 @@ async def on_message(msg):
             await install_msg.edit(content=f"```✅ {pkg} instalado com sucesso!```")
             await loading.edit(content=f"```$ pip install {pkg}\n✅ Sucesso!```")
         else:
-            await install_msg.edit(content=f"```❌ Erro na instalação```")
+            await install_msg.edit(content=f"```❌ Erro ao instalar {pkg}```")
         return
 
+    # ==================== BND ====================
     if comando_lower.startswith("bnd"):
         cat = discord.utils.get(msg.guild.categories, name=CATEGORIA) or await msg.guild.create_category(CATEGORIA)
-        channel = discord.utils.get(msg.guild.text_channels, name="banco-de-pacotes") or await msg.guild.create_text_channel("banco-de-pacotes", category=cat)
+        channel = discord.utils.get(msg.guild.text_channels, name="banco-de-pacotes") or await msg.guild.create_text_channel("📦 banco-de-pacotes", category=cat)
 
         lista = fb_get()
-        embed = discord.Embed(title="📦 Banco de Pacotes Instalados", color=0x00ff88)
-        embed.description = "\n".join([f"• {p}" for p in lista]) or "Nenhum pacote."
+        embed = discord.Embed(title="📦 Banco de Pacotes Instalados", color=0x00ff88, timestamp=datetime.utcnow())
+        embed.description = "\n".join([f"• {p}" for p in lista]) or "Nenhum pacote instalado."
         embed.add_field(name="Total", value=len(lista), inline=True)
         embed.add_field(name="💾 Render", value=f"{psutil.disk_usage('/').free//(1024**3)}GB livre", inline=True)
         embed.add_field(name="🔥 Firebase", value=f"{len(str(requests.get(FIREBASE_URL + '.json?shallow=true').content))//1024} KB", inline=True)
         embed.add_field(name="📡 UptimeRobot", value=await get_uptime_info(), inline=False)
-        embed.add_field(name="🏓 Ping", value=f"{round(bot.latency*1000, 2)}ms", inline=True)
+        embed.add_field(name="🏓 Ping do Bot", value=f"{round(bot.latency*1000, 2)}ms", inline=True)
 
         await channel.send(embed=embed)
-        await loading.edit(content=f"```✅ Banco aberto em {channel.mention}```")
+        await loading.edit(content=f"```✅ Banco de pacotes aberto!\n📦 {channel.mention}```")
         return
 
-    # Comando genérico
+    # ==================== OUTROS ====================
     try:
         proc = subprocess.run(content, shell=True, capture_output=True, text=True, timeout=30)
         await loading.edit(content=f"```\n$ {content}\n\n{proc.stdout + proc.stderr[:1800] or '✔ OK'}\n```")
