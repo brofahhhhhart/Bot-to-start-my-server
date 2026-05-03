@@ -5,7 +5,6 @@ import asyncio
 import os
 import requests
 import time
-import shlex
 
 # ================= CONFIG =================
 TOKEN = os.getenv("DISCORD_TOKEN")
@@ -21,12 +20,18 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 def fb_get():
     try:
         r = requests.get(f"{FIREBASE_URL}/packages.json")
-        return r.json() if r.json() else []
+        data = r.json()
+        if isinstance(data, list):
+            return data
+        elif isinstance(data, dict):
+            return list(data.values())  # converte dict para lista
+        return []
     except:
         return []
 
 def fb_save(data):
     try:
+        # Sempre salva como lista
         requests.put(f"{FIREBASE_URL}/packages.json", json=data)
     except:
         pass
@@ -38,17 +43,16 @@ def autorizado(member):
 # ================= LOADER ANIMADO =================
 async def loader(msg, texto_inicial="Iniciando terminal..."):
     frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
-    for i in range(25):  # \~5 segundos de animação
+    for i in range(25):
         frame = frames[i % len(frames)]
         barra = "█" * (i // 3) + "░" * (8 - i // 3)
-        await msg.edit(content=f"```{frame} {texto_inicial}\n[{barra}] {i*4}%```")
-        await asyncio.sleep(0.2)
+        await msg.edit(content=f"```{frame} {texto_inicial}\n[{barra}] {min(i*4, 100)}%```")
+        await asyncio.sleep(0.22)
 
 # ================= READY =================
 @bot.event
 async def on_ready():
     print(f"🦊 Bot ON: {bot.user}")
-    # Reinstala pacotes salvos
     pkgs = fb_get()
     if pkgs:
         print("📦 Reinstalando pacotes salvos...")
@@ -65,37 +69,35 @@ async def on_message(msg):
     if not content:
         return
 
-    # Ignora comandos do bot (!)
     if content.startswith("!"):
         await bot.process_commands(msg)
         return
 
     if not autorizado(msg.author):
-        return await msg.reply("❌ Você não tem permissão para usar o terminal.")
+        return await msg.reply("❌ Sem permissão.")
 
-    # ================= FILTRO: Só executa comandos conhecidos =================
-    comando = content.split()[0].lower()
+    # Normaliza o comando (maiúsculo → minúsculo)
+    comando_lower = content.lower()
 
-    comandos_permitidos = {
-        "pip", "mkdir", "ls", "cd", "echo", "cat", "python", "node", "npm",
-        "clear", "whoami", "uptime", "date", "ping", "help"
-    }
+    # ================= FILTRO DE COMANDOS =================
+    comandos_permitidos = {"pip", "mkdir", "ls", "echo", "cat", "python", "node", "npm", 
+                          "clear", "whoami", "uptime", "date", "ping", "help"}
 
-    if comando not in comandos_permitidos and not content.startswith(("sudo ", "apt ", "pkg ")):
-        return await msg.reply("❌ Comando não reconhecido. Digite `help` para ver os comandos disponíveis.")
+    if not any(comando_lower.startswith(cmd) for cmd in comandos_permitidos | {"sudo ", "apt ", "pkg "}):
+        return await msg.reply("❌ Comando não reconhecido. Digite `help` para ver os comandos.")
 
-    # Loader
     loading = await msg.reply("```Iniciando terminal...```")
     await loader(loading, "Executando...")
 
-    # ================= COMANDOS ESPECIAIS =================
-    if content.startswith("pip install "):
-        pkg = content.replace("pip install ", "").strip()
+    # ================= PIP INSTALL =================
+    if comando_lower.startswith("pip install "):
+        pkg = content[12:].strip()  # pega original para instalar
         lista = fb_get()
 
         await loading.edit(content="```📦 Instalando pacote...```")
+        
         try:
-            proc = subprocess.run(f"pip install {pkg}", shell=True, capture_output=True, text=True, timeout=60)
+            proc = subprocess.run(f"pip install {pkg}", shell=True, capture_output=True, text=True, timeout=90)
             
             if proc.returncode == 0:
                 if pkg not in lista:
@@ -103,34 +105,35 @@ async def on_message(msg):
                     fb_save(lista)
                 await loading.edit(content=f"```✅ {pkg} instalado com sucesso!```")
             else:
-                await loading.edit(content=f"```❌ Erro na instalação:\n{proc.stderr[:1500]}```")
+                await loading.edit(content=f"```❌ Erro na instalação:\n{proc.stderr[:1400]}```")
         except Exception as e:
             await loading.edit(content=f"```❌ Erro: {str(e)}```")
         return
 
-    elif content.startswith("mkdir "):
-        nome = content.replace("mkdir ", "").strip()
+    # ================= MKDIR =================
+    if comando_lower.startswith("mkdir "):
+        nome = content[6:].strip()
         cat = discord.utils.get(msg.guild.categories, name=CATEGORIA)
         if not cat:
             cat = await msg.guild.create_category(CATEGORIA)
         canal = await msg.guild.create_text_channel(nome, category=cat)
         return await loading.edit(content=f"```📁 Canal '{nome}' criado com sucesso!\n{canal.mention}```")
 
-    # ================= EXECUÇÃO GERAL =================
+    # ================= EXECUÇÃO NORMAL =================
     try:
         start = time.time()
         proc = subprocess.run(content, shell=True, capture_output=True, text=True, timeout=30)
         output = proc.stdout + proc.stderr
         tempo = round(time.time() - start, 2)
     except subprocess.TimeoutExpired:
-        output = "⏰ Comando demorou muito (timeout)"
+        output = "⏰ Tempo esgotado (timeout)"
         tempo = 30
     except Exception as e:
         output = str(e)
         tempo = 0
 
     if not output.strip():
-        output = "✔ Comando executado com sucesso (sem saída)"
+        output = "✔ Comando executado com sucesso."
 
     await loading.edit(content=f"""```
 $ {content}
@@ -142,7 +145,7 @@ $ {content}
 
     await bot.process_commands(msg)
 
-# ================= KEEP ALIVE (Render) =================
+# ================= KEEP ALIVE =================
 from flask import Flask
 from threading import Thread
 
@@ -150,7 +153,7 @@ app = Flask("")
 
 @app.route("/")
 def home():
-    return "🦊 Terminal Bot Online"
+    return "🦊 Bot Online"
 
 def run():
     app.run(host="0.0.0.0", port=8080)
@@ -161,7 +164,7 @@ def keep_alive():
 # ================= START =================
 if __name__ == "__main__":
     if not TOKEN or not FIREBASE_URL:
-        print("❌ Configure as variáveis DISCORD_TOKEN e FIREBASE_URL")
+        print("❌ Configure DISCORD_TOKEN e FIREBASE_URL")
         exit()
     keep_alive()
     bot.run(TOKEN)
