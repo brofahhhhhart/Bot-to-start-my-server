@@ -5,6 +5,7 @@ import asyncio
 import os
 import requests
 import time
+import psutil  # ← novo
 
 # ================= CONFIG =================
 TOKEN = os.getenv("DISCORD_TOKEN")
@@ -16,22 +17,18 @@ CATEGORIA = "TERMINAL"
 intents = discord.Intents.all()
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# ================= FIREBASE (Corrigido) =================
+# ================= FIREBASE =================
 def fb_get():
     try:
         r = requests.get(f"{FIREBASE_URL}/packages.json")
         data = r.json()
-        if isinstance(data, list):
-            return data
-        elif isinstance(data, dict):
-            return list(data.values())
-        return []
+        return list(data.values()) if isinstance(data, dict) else data if isinstance(data, list) else []
     except:
         return []
 
 def fb_save(data):
     try:
-        requests.put(f"{FIREBASE_URL}/packages.json", json=list(set(data)))  # remove duplicatas
+        requests.put(f"{FIREBASE_URL}/packages.json", json=list(set(data)))
     except:
         pass
 
@@ -39,86 +36,88 @@ def fb_save(data):
 def autorizado(member):
     return any(role.id == CARGO_ID for role in member.roles)
 
-# ================= LOADER ANIMADO =================
+# ================= LOADER =================
 async def loader(msg):
     frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
-    for i in range(20):
+    for i in range(18):
         frame = frames[i % len(frames)]
         barra = "█" * (i // 3) + "░" * (8 - i // 3)
-        await msg.edit(content=f"```{frame} Executando...\n[{barra}] {min(i*5, 100)}%```")
-        await asyncio.sleep(0.25)
+        await msg.edit(content=f"```{frame} Executando...\n[{barra}] {min(i*6, 100)}%```")
+        await asyncio.sleep(0.22)
 
 # ================= READY =================
 @bot.event
 async def on_ready():
     print(f"🦊 Bot ON: {bot.user}")
-    for p in fb_get():
-        os.system(f"pip install {p}")
 
-# ================= TERMINAL =================
+# ================= ON_MESSAGE =================
 @bot.event
 async def on_message(msg):
-    if msg.author.bot or not msg.guild or not msg.content.strip():
+    if msg.author.bot or not msg.guild:
         return
 
     content = msg.content.strip()
-    if content.startswith("!"):
+    if not content or content.startswith("!"):
         await bot.process_commands(msg)
         return
+
+    # ================= SÓ ATIVA COM COMANDOS ESPECÍFICOS =================
+    comando_lower = content.lower()
+
+    if not any(comando_lower.startswith(x) for x in ["pip install ", "mkdir ", "bnd", "status", "help"]):
+        return  # ← Ignora conversa normal
 
     if not autorizado(msg.author):
         return await msg.reply("❌ Sem permissão.")
 
-    comando_lower = content.lower()
-
-    # Filtro de comandos
-    if not any(comando_lower.startswith(c) for c in ["pip install ", "mkdir ", "ls", "echo", "python", "node", "npm", "help"]):
-        return await msg.reply("❌ Comando não reconhecido.")
-
-    # ================= LOADING INICIAL =================
     loading = await msg.reply("```Iniciando terminal...```")
     await loader(loading)
 
-    # ================= PIP INSTALL - ESTILO TERMUX =================
+    # ================= PIP INSTALL =================
     if comando_lower.startswith("pip install "):
         pkg = content[12:].strip()
-        
-        # Mensagem de instalação abaixo do loader
         install_msg = await msg.channel.send(f"```📦 Installing {pkg}...```")
         
         try:
             proc = subprocess.run(f"pip install {pkg}", shell=True, capture_output=True, text=True, timeout=90)
-            
             if proc.returncode == 0:
                 lista = fb_get()
                 if pkg not in lista:
                     lista.append(pkg)
                     fb_save(lista)
-                
                 await install_msg.edit(content=f"```✅ {pkg} instalado com sucesso!```")
-                await loading.edit(content=f"```$ {content}\n✅ Sucesso!```")
             else:
-                await install_msg.edit(content=f"```❌ Erro ao instalar {pkg}:\n{proc.stderr[:1000]}```")
+                await install_msg.edit(content=f"```❌ Erro ao instalar:\n{proc.stderr[:900]}```")
         except Exception as e:
             await install_msg.edit(content=f"```❌ Erro: {str(e)}```")
+        return
+
+    # ================= BANCO DE PACOTES (bnd) =================
+    if comando_lower.startswith("bnd"):
+        lista = fb_get()
+        pacotes = "\n".join([f"• {p}" for p in lista]) if lista else "Nenhum pacote instalado ainda."
+
+        embed = discord.Embed(
+            title="📦 Banco de Pacotes Instalados",
+            description=pacotes,
+            color=0x00ff00
+        )
+        embed.add_field(name="Total", value=f"{len(lista)} pacotes", inline=True)
         
+        # Status do Render
+        try:
+            disco = psutil.disk_usage('/')
+            embed.add_field(name="💾 Espaço no Render", 
+                          value=f"{disco.free // (1024**3)}GB livre de {disco.total // (1024**3)}GB", 
+                          inline=True)
+        except:
+            pass
+
+        await loading.edit(content=None, embed=embed)
         return
 
-    # ================= OUTROS COMANDOS =================
-    if comando_lower.startswith("mkdir "):
-        nome = content[6:].strip()
-        cat = discord.utils.get(msg.guild.categories, name=CATEGORIA) or await msg.guild.create_category(CATEGORIA)
-        canal = await msg.guild.create_text_channel(nome, category=cat)
-        await loading.edit(content=f"```📁 Canal '{nome}' criado!\n{canal.mention}```")
-        return
-
-    # Execução normal
-    try:
-        proc = subprocess.run(content, shell=True, capture_output=True, text=True, timeout=30)
-        output = proc.stdout + proc.stderr or "✔ Executado com sucesso."
-        await loading.edit(content=f"```\n$ {content}\n\n{output[:1800]}\n```")
-    except Exception as e:
-        await loading.edit(content=f"```❌ Erro: {str(e)}```")
+    # Outros comandos...
+    await loading.edit(content="```Comando em desenvolvimento...```")
 
     await bot.process_commands(msg)
 
@@ -128,8 +127,7 @@ from threading import Thread
 app = Flask("")
 @app.route("/") 
 def home(): return "Online"
-def run(): app.run(host="0.0.0.0", port=8080)
-def keep_alive(): Thread(target=run).start()
+def keep_alive(): Thread(target=lambda: app.run(host="0.0.0.0", port=8080)).start()
 
 if __name__ == "__main__":
     keep_alive()
