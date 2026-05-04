@@ -1,6 +1,23 @@
-discord.py==2.3.2
-requests
-flask
-audioop-lts
-psutil
-matplotlib
+# ─────────────────────────────────────────────────────────────────
+#  📦 requirements.txt — Discord Terminal Bot v2.0
+#  Instale com: pip install -r requirements.txt
+# ─────────────────────────────────────────────────────────────────
+
+# ── Discord ──────────────────────────────────────────────────────
+discord.py>=2.3.2             # Biblioteca principal do bot Discord
+
+# ── Web / Keep-alive ─────────────────────────────────────────────
+flask>=3.0.0                  # Servidor HTTP para keep-alive no Render
+requests>=2.31.0              # Requisições HTTP (Firebase, UptimeRobot)
+
+# ── Sistema ──────────────────────────────────────────────────────
+psutil>=5.9.8                 # Monitoramento de CPU, RAM, disco e rede
+
+# ── Gráficos ─────────────────────────────────────────────────────
+matplotlib>=3.8.0             # Geração de gráficos PNG
+
+# ── Áudio (necessário para algumas deps do discord.py) ───────────
+audioop-lts>=0.2.1            # Substituto do audioop para Python 3.13+
+
+# ── Utilitários ──────────────────────────────────────────────────
+python-dotenv>=1.0.0          # Carrega variáveis de ambiente do .env local
