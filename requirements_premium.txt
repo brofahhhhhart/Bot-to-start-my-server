@@ -1,27 +1,2 @@
-# ═══════════════════════════════════════════════════════════════════
-#  📦 requirements.txt — Discord Terminal Bot Premium v3.0
-#  Instale com: pip install -r requirements.txt
-# ═══════════════════════════════════════════════════════════════════
-
-# ── Discord Bot ──────────────────────────────────────────────────
-discord.py>=2.3.2                 # Bot Discord
-
-# ── Firebase Admin SDK ───────────────────────────────────────────
-firebase-admin>=6.4.0             # Firebase Realtime Database (SDK)
-
-# ── Web / Keep-alive ─────────────────────────────────────────────
-flask>=3.0.0                      # Servidor HTTP para keep-alive
-requests>=2.31.0                  # Requisições HTTP (UptimeRobot)
-
-# ── Sistema ──────────────────────────────────────────────────────
-psutil>=5.9.8                     # Monitoramento CPU, RAM, disco
-
-# ── Gráficos ─────────────────────────────────────────────────────
-matplotlib>=3.8.0                 # Geração de gráficos PNG
-
-# ── Utilitários ──────────────────────────────────────────────────
-python-dotenv>=1.0.0              # Carregamento de .env
-cryptography>=41.0.0              # Necessário para firebase-admin
-
-# ── Audio (compatibilidade) ──────────────────────────────────────
-audioop-lts>=0.2.1                # Suporte para Python 3.13+
+flask>=3.0.0
+requests>=2.31.0
